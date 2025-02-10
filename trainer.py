@@ -1,6 +1,3 @@
-# base: https://github.com/huggingface/cosmopedia/blob/main/classification/train_edu_bert.py
-# Apache 2.0 License
-
 import argparse
 import os
 import unicodedata
@@ -9,7 +6,7 @@ import evaluate
 import numpy as np
 import torch
 import torch.nn as nn
-from datasets import ClassLabel, load_dataset
+from datasets import ClassLabel, Features, Value, concatenate_datasets, load_dataset
 from sklearn.metrics import classification_report, confusion_matrix
 from transformers import (
     AutoModelForSequenceClassification,
@@ -97,9 +94,45 @@ def main(args):
         },
         num_proc=15,
     )
-    dataset = dataset.cast_column(
-        args.target_column, ClassLabel(names=[str(i) for i in range(5)])
-    )
+
+    # Cast the score column to ClassLabel before loading Wikipedia dataset
+    class_label_feature = ClassLabel(names=[str(i) for i in range(5)])
+    dataset = dataset.cast_column(args.target_column, class_label_feature)
+
+    # Load Wikipedia dataset if specified
+    if args.add_wikipedia_dataset_count > 0:
+        print(
+            f"Loading {args.add_wikipedia_dataset_count} samples from Wikipedia dataset..."
+        )
+        wikipedia_dataset = load_dataset(
+            "hpprc/jawiki-paragraphs", "default", split="train"
+        )
+        # Random sampling
+        target_indexes = np.random.choice(
+            len(wikipedia_dataset), args.add_wikipedia_dataset_count, replace=False
+        )
+        wikipedia_dataset = wikipedia_dataset.select(target_indexes)
+
+        # Create Wikipedia dataset with matching features
+        wikipedia_dataset = wikipedia_dataset.map(
+            lambda x: {
+                "text": unicode_normalize(x["text"]),
+                args.target_column: 4,  # Set Wikipedia quality score to 4
+            },
+            num_proc=15,
+            remove_columns=wikipedia_dataset.column_names,
+        )
+
+        # Cast the Wikipedia dataset's features to match the main dataset
+        wikipedia_dataset = wikipedia_dataset.cast(
+            Features({"text": Value("string"), args.target_column: class_label_feature})
+        )
+
+        # Add Wikipedia dataset to training set only
+        print(f"Original train dataset size: {len(dataset['train'])}")
+        dataset["train"] = concatenate_datasets([dataset["train"], wikipedia_dataset])
+        print(f"New train dataset size: {len(dataset['train'])}")
+
     test_dataset = dataset["test"]
     dataset = dataset["train"].train_test_split(  # type: ignore
         train_size=0.95, seed=42, stratify_by_column=args.target_column
@@ -143,7 +176,6 @@ def main(args):
         max_grad_norm=1.0,
         seed=42,
         per_device_train_batch_size=256,
-        # per_device_train_batch_size=32,
         gradient_accumulation_steps=8,
         per_device_eval_batch_size=512,
         eval_on_start=True,
@@ -151,7 +183,6 @@ def main(args):
         metric_for_best_model="f1_macro",
         greater_is_better=True,
         bf16=True,
-        # push_to_hub=True,
     )
 
     if args.score_weights:
@@ -206,10 +237,13 @@ if __name__ == "__main__":
         default=None,
         help="Class weights for the loss function, expected as a space-separated list of floats.",
     )
+    parser.add_argument(
+        "--add_wikipedia_dataset_count",
+        type=int,
+        default=0,
+        help="Number of samples to add from the Japanese Wikipedia dataset",
+    )
 
-    # parser.add_argument(
-    #     "--output_model_name", type=str, default="HuggingFaceTB/fineweb-edu-scorer"
-    # )
     args = parser.parse_args()
 
     main(args)
