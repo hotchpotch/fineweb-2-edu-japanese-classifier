@@ -97,15 +97,6 @@ def main(args):
         },
         num_proc=15,
     )
-    dataset = dataset.map(
-        lambda x: {"score": 4 if x["score"] == 5 else x["score"]}, num_proc=11
-    )
-
-    dataset = dataset.map(
-        lambda x: {args.target_column: np.clip(int(x[args.target_column]), 0, 4)},
-        num_proc=15,  # type: ignore
-    )
-
     dataset = dataset.cast_column(
         args.target_column, ClassLabel(names=[str(i) for i in range(5)])
     )

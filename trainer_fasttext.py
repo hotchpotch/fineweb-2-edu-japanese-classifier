@@ -19,10 +19,6 @@ def unicode_normalize(text):
 def prepare_data(dataset_name):
     dataset = load_dataset(dataset_name)
     dataset = dataset.map(lambda x: {"text": unicode_normalize(x["text"])}, num_proc=11)
-    # Convert ['score'] of 5 to 4 in the dataset
-    dataset = dataset.map(
-        lambda x: {"score": 4 if x["score"] == 5 else x["score"]}, num_proc=11
-    )
     return dataset
 
 

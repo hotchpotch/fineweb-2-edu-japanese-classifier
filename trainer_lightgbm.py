@@ -103,9 +103,6 @@ model = lgb.train(
 val_pred = model.predict(X_val)
 test_pred = model.predict(test_data)
 
-# Clip predictions to be within the range of 0 to 4
-val_pred = np.clip(val_pred, 0, 4)
-test_pred = np.clip(test_pred, 0, 4)
 
 # Calculate evaluation metrics
 rmse = np.sqrt(mean_squared_error(y_val, val_pred))
@@ -130,7 +127,6 @@ model.save_model("tmp/lightgbm_score_predictor.txt")
 
 # Predict on test data
 test_pred = model.predict(test_data)
-test_pred = np.clip(test_pred, 0, 4)
 
 # Evaluation using the evaluate library
 eval_pred = (test_pred, test_labels)  # Format: (predictions, labels)
@@ -142,7 +138,7 @@ f1_metric = evaluate.load("f1")
 accuracy_metric = evaluate.load("accuracy")
 
 # Convert predictions and true labels to integers
-preds = np.round(test_pred).clip(0, 4).astype(int)
+preds = np.round(test_pred).astype(int)
 labels = np.round(test_labels).astype(int)
 
 # Compute each metric
