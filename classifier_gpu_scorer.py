@@ -8,7 +8,6 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 
-@dataclass
 class Fineweb2EduJapaneseScoreClassifier:
     def __init__(
         self,

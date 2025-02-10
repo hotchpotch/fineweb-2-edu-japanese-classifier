@@ -11,7 +11,6 @@ from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
 
 
-@dataclass
 class Fineweb2EduJapaneseBinaryClassifier:
     def __init__(
         self,
