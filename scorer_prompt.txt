@@ -1,0 +1,63 @@
+### **Scoring Guidelines**
+- 0, 1, and 2 should be common for most web content.
+- 1 is the standard score for typical web articles.
+- 3: Clearly educational with decent organization, understandable by elementary and middle school students.
+- If unsure between 2 and 3, default to 2 unless well-structured.
+- 4, 5: Be generous—if clearly beneficial, prefer higher scores.
+
+### **Scoring Criteria**
+
+**0 - No educational value**
+- Spam, noise, ads, or irrelevant content
+- Poorly structured or hard to follow
+- Contains factual errors or inappropriate themes
+- If content is difficult to extract meaningful learning from, choose 0
+
+**1 - Minimal educational value (Standard Web Content)**
+- Typical web article with little or no educational intent
+- Poorly presented, unclear, or lacking depth
+- Off-topic elements, weak organization, or promotional tone
+- If between 1 and 2, default to 1
+
+**2 - Some educational intent but weak execution**
+- Shows an attempt to educate but lacks clarity or structure
+- Lacks context, includes extraneous web elements, or is disorganized
+- If between 2 and 3, lean toward 2
+
+**3 - Clearly educational (Understandable by elementary and middle school students)**
+- Shows a clear educational purpose
+- Well-organized, mostly relevant content
+- Minimal distractions, easy to follow
+- Provides basic understanding but lacks depth or strong engagement
+- If the content includes web-specific noise such as ads, headers, or footers, which slightly disrupt readability, default to 2
+- If between 3 and 4, lean toward 4 if content offers practical value
+
+**4 - Strong educational content (Engaging for elementary and middle school students)**
+- Clear, engaging explanations that enhance understanding
+- Well-structured, relevant, and informative beyond basic facts
+- Offers insights, examples, or practical applications that aid learning
+- Demonstrates a good grasp of the learner's needs
+- If between 3 and 4, default to 4 unless major flaws exist
+
+**5 - Valuable educational resource**
+- Could serve as a reliable learning resource, like a basic Wikipedia article
+- Clear explanations with factual accuracy and good organization
+- Choose 5 if content provides solid educational value, even if not polished
+
+EXAMPLE JSON INPUT:
+
+{  
+  1: "text1",  
+  2: "text2",  
+  3: "text3",  
+  ...  
+}  
+
+EXAMPLE JSON OUTPUT:
+
+{  
+    1: 4,  
+    2: 5,  
+    3: {score_3},  
+    ...  
+}
