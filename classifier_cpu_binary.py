@@ -105,27 +105,17 @@ if __name__ == "__main__":
         f"Educational content ratio: {is_edu_count / len(predictions) * 100:.1f}% ({is_edu_count}/{len(predictions)})"
     )
 
-    # Print sample predictions (5 educational and 5 non-educational)
+    # Print sample predictions
     print("\nSample Predictions:")
 
-    # Separate educational and non-educational content
-    edu_samples = []
-    non_edu_samples = []
+    # Sort by score
+    samples = list(zip(test_texts, predictions))
+    samples.sort(key=lambda x: x[1][1], reverse=True)
 
-    for text, (is_edu, score) in zip(test_texts, predictions):
-        if is_edu and len(edu_samples) < 5:
-            edu_samples.append((text, score))
-        elif not is_edu and len(non_edu_samples) < 5:
-            non_edu_samples.append((text, score))
+    print("\nHigh-scoring Examples:")
+    for text, (is_edu, score) in samples[:5]:
+        print(f"Score {score:.3f} (Educational: {is_edu}): {text[:200]}...\n")
 
-        # Break if we have enough samples of both types
-        if len(edu_samples) == 5 and len(non_edu_samples) == 5:
-            break
-
-    print("\nEducational Content Examples:")
-    for text, score in edu_samples:
-        print(f"{score:.3f}: {text[:200]}...\n===============================")
-
-    print("\nNon-Educational Content Examples:")
-    for text, score in non_edu_samples:
-        print(f"{score:.3f}: {text[:200]}...\n===============================")
+    print("\nLow-scoring Examples:")
+    for text, (is_edu, score) in samples[-5:]:
+        print(f"Score {score:.3f} (Educational: {is_edu}): {text[:200]}...\n")
