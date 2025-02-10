@@ -1,0 +1,19 @@
+[project]
+name = "fineweb-2-edu-japanese-classifier"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=3.2.0",
+    "evaluate>=0.4.3",
+    "fasttext-wheel>=0.9.2",
+    "lightgbm>=4.5.0",
+    "numpy>=2.2.2",
+    "pandas>=2.2.3",
+    "scikit-learn>=1.6.1",
+    "sentence-transformers>=3.4.1",
+    "torch>=2.6.0",
+    "tqdm>=4.67.1",
+    "transformers>=4.48.3",
+]
