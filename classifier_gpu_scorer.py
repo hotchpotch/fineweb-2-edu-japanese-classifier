@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from typing import List, Tuple
 
 import numpy as np
@@ -76,24 +75,24 @@ class Fineweb2EduJapaneseScoreClassifier:
         return [(float(s) >= self.threshold, float(s)) for s in scores]
 
 
-def print_score_matrix(scores: List[float], num_bins: int = 10):
-    """Print the distribution of scores in a text-based matrix"""
-    clipped_scores = np.clip(scores, 0, 4)
-    hist, bins = np.histogram(clipped_scores, bins=num_bins, range=(0, 4))
-    max_count = max(hist)
-
-    print("\nScore Distribution (★ = approximately 10 samples):")
-    print("-" * 50)
-    for i in range(len(hist)):
-        bin_start = bins[i]
-        bin_end = bins[i + 1]
-        count = hist[i]
-        stars = "★" * int(count / (max_count / 20))  # Scale to max 20 stars
-        print(f"{bin_start:4.1f}-{bin_end:4.1f}: {stars} ({count:4d})")
-    print("-" * 50)
-
-
 if __name__ == "__main__":
+
+    def print_score_matrix(scores: List[float], num_bins: int = 10):
+        """Print the distribution of scores in a text-based matrix"""
+        clipped_scores = np.clip(scores, 0, 4)
+        hist, bins = np.histogram(clipped_scores, bins=num_bins, range=(0, 4))
+        max_count = max(hist)
+
+        print("\nScore Distribution (★ = approximately 10 samples):")
+        print("-" * 50)
+        for i in range(len(hist)):
+            bin_start = bins[i]
+            bin_end = bins[i + 1]
+            count = hist[i]
+            stars = "★" * int(count / (max_count / 20))  # Scale to max 20 stars
+            print(f"{bin_start:4.1f}-{bin_end:4.1f}: {stars} ({count:4d})")
+        print("-" * 50)
+
     import datasets
 
     # Initialize classifier
