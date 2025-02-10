@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+import argparse
+import os
 import unicodedata
 
 import datasets
@@ -16,153 +19,285 @@ from sklearn.model_selection import train_test_split
 
 
 def unicode_normalize(text):
-    # Normalize using NFKC
-    normalized_text = unicodedata.normalize("NFKC", text)
-    return normalized_text
+    """Unicode normalization (NFKC)"""
+    return unicodedata.normalize("NFKC", text)
 
 
-def prepare_data(dataset_name="hotchpotch/wip-fineweb-2-edu-japanese-scores"):
-    dataset = datasets.load_dataset(dataset_name)
-    dataset = dataset.map(lambda x: {"text": unicode_normalize(x["text"])}, num_proc=11)
-    # If the value in dataset['score'] is 5, convert it to 4
-    dataset = dataset.map(
-        lambda x: {"score": 4 if x["score"] == 5 else x["score"]}, num_proc=11
-    )
-    return dataset
+def compute_metrics(predictions, labels):
+    """
+    Function to compute evaluation metrics.
+    In addition to regression metrics (RMSE, MAE),
+    calculates Precision, Recall, F1 (macro) and Accuracy
+    by rounding prediction values at the classification level.
+    """
+    # Regression metrics
+    rmse = np.sqrt(mean_squared_error(labels, predictions))
+    mae = mean_absolute_error(labels, predictions)
 
+    # Round predictions and labels for classification evaluation
+    preds_rounded = np.round(predictions).astype(int)
+    labels_rounded = np.round(labels).astype(int)
 
-ds = prepare_data()
-train_df = ds["train"].to_pandas()
-test_df = ds["test"].to_pandas()
+    # Calculate various classification metrics using evaluate library
+    precision_metric = evaluate.load("precision")
+    recall_metric = evaluate.load("recall")
+    f1_metric = evaluate.load("f1")
+    accuracy_metric = evaluate.load("accuracy")
 
-# Uncomment below for debugging (limit dataset sizes)
-# if True:
-#     # Debug: limit data size
-#     train_df = train_df[:10000]
-#     test_df = test_df[:100]
+    precision = precision_metric.compute(
+        predictions=preds_rounded, references=labels_rounded, average="macro"
+    )["precision"]
+    recall = recall_metric.compute(
+        predictions=preds_rounded, references=labels_rounded, average="macro"
+    )["recall"]
+    f1 = f1_metric.compute(
+        predictions=preds_rounded, references=labels_rounded, average="macro"
+    )["f1"]
+    accuracy = accuracy_metric.compute(
+        predictions=preds_rounded, references=labels_rounded
+    )["accuracy"]
 
-train_labels = train_df["score"].values
-test_labels = test_df["score"].values
+    # Display detailed classification report and confusion matrix
+    report = classification_report(labels_rounded, preds_rounded)
+    cm = confusion_matrix(labels_rounded, preds_rounded)
+    print("\nClassification Report:")
+    print(report)
+    print("Confusion Matrix:")
+    print(cm)
 
-train_text = train_df["text"].values.tolist()
-test_text = test_df["text"].values.tolist()
-
-model_name = "hotchpotch/static-embedding-japanese"
-model = SentenceTransformer(model_name, device="cpu", truncate_dim=1024)
-
-train_data = model.encode(train_text, convert_to_numpy=True, show_progress_bar=True)
-test_data = model.encode(test_text, convert_to_numpy=True, show_progress_bar=True)
-del model
-
-# Data preparation
-# train_data: features with shape (270000, 1024)
-# train_labels: scores with shape (270000,)
-# test_data: features with shape (30000, 1024)
-
-# Split data for validation
-X_train, X_val, y_train, y_val = train_test_split(
-    train_data, train_labels, test_size=0.05, random_state=42
-)
-
-# Create LightGBM datasets
-train_dataset = lgb.Dataset(X_train, label=y_train)
-val_dataset = lgb.Dataset(X_val, label=y_val, reference=train_dataset)
-
-# Example parameter settings
-params = {
-    "objective": "regression",  # Regression task
-    "metric": "rmse",  # Evaluation metric: RMSE
-    "boosting_type": "gbdt",
-    "num_leaves": 128,  # Increase the number of leaves (default is 31)
-    "max_depth": 15,  # Limit tree depth to prevent over-complexity
-    "learning_rate": 0.02,  # Small learning rate; increase num_boost_round accordingly
-    "feature_fraction": 0.8,  # Subsample features to prevent overfitting and improve diversity
-    "bagging_fraction": 0.8,  # Subsample data for similar reasons
-    "bagging_freq": 1,  # Apply bagging_fraction at every round
-    "lambda_l1": 0.1,  # L1 regularization to promote sparsity of leaf weights
-    "lambda_l2": 1.0,  # L2 regularization to avoid overly large leaf weights
-    "min_gain_to_split": 0.1,  # Do not split if the gain is too small
-    "min_data_in_leaf": 50,  # Minimum data per leaf to avoid extreme splits
-    "verbose": 1,  # Enable training log output (-1 to hide)
-}
-
-# Train the model
-# Set a high number of rounds; early stopping will halt training when improvements stall
-model = lgb.train(
-    params,
-    train_dataset,
-    num_boost_round=5000,  # Set a high number of rounds; early stopping will stop training if no improvement for 50 rounds
-    valid_sets=[train_dataset, val_dataset],
-    callbacks=[
-        lgb.early_stopping(stopping_rounds=50),  # Stop if no improvement over 50 rounds
-        lgb.log_evaluation(period=100),  # Log evaluation every 100 rounds
-    ],
-)
-
-# Predictions
-val_pred = model.predict(X_val)
-test_pred = model.predict(test_data)
-
-
-# Calculate evaluation metrics
-rmse = np.sqrt(mean_squared_error(y_val, val_pred))
-mae = mean_absolute_error(y_val, val_pred)
-
-print(f"Validation RMSE: {rmse:.4f}")
-print(f"Validation MAE: {mae:.4f}")
-
-# Display feature importance
-feature_importance = pd.DataFrame(
-    {
-        "feature": [f"feature_{i}" for i in range(train_data.shape[1])],
-        "importance": model.feature_importance(),
+    return {
+        "rmse": rmse,
+        "mae": mae,
+        "precision": precision,
+        "recall": recall,
+        "f1_macro": f1,
+        "accuracy": accuracy,
     }
-)
-feature_importance = feature_importance.sort_values("importance", ascending=False)
-print("\nTop 10 Important Features:")
-print(feature_importance.head(10))
 
-# Save the model
-model.save_model("tmp/lightgbm_score_predictor.txt")
 
-# Predict on test data
-test_pred = model.predict(test_data)
+def main(args):
+    # 1. Load and preprocess dataset
+    print("Loading dataset...")
+    ds = datasets.load_dataset(args.dataset_name)
+    # Unicode normalization of text
+    ds = ds.map(
+        lambda x: {"text": unicode_normalize(x["text"])},
+        num_proc=args.num_proc,
+    )
+    # Map score 5 to 4 (specified by args.target_column)
+    ds = ds.map(
+        lambda x: {
+            args.target_column: 4
+            if x[args.target_column] == 5
+            else x[args.target_column]
+        },
+        num_proc=args.num_proc,
+    )
 
-# Evaluation using the evaluate library
-eval_pred = (test_pred, test_labels)  # Format: (predictions, labels)
+    # Convert train/test to pandas.DataFrame
+    train_df = ds["train"].to_pandas()
+    test_df = ds["test"].to_pandas()
 
-# Calculate metrics
-precision_metric = evaluate.load("precision")
-recall_metric = evaluate.load("recall")
-f1_metric = evaluate.load("f1")
-accuracy_metric = evaluate.load("accuracy")
+    if args.debug:
+        print("Debug mode enabled: limiting dataset sizes")
+        train_df = train_df.head(10000)
+        test_df = test_df.head(100)
 
-# Convert predictions and true labels to integers
-preds = np.round(test_pred).astype(int)
-labels = np.round(test_labels).astype(int)
+    train_text = train_df["text"].tolist()
+    train_labels = train_df[args.target_column].values
+    test_text = test_df["text"].tolist()
+    test_labels = test_df[args.target_column].values
 
-# Compute each metric
-precision = precision_metric.compute(
-    predictions=preds, references=labels, average="macro"
-)["precision"]
-recall = recall_metric.compute(predictions=preds, references=labels, average="macro")[
-    "recall"
-]
-f1 = f1_metric.compute(predictions=preds, references=labels, average="macro")["f1"]
-accuracy = accuracy_metric.compute(predictions=preds, references=labels)["accuracy"]
+    # 2. Get embedding vectors
+    print("Loading embedding model...")
+    embedder = SentenceTransformer(
+        args.embedding_model_name, device="cpu", truncate_dim=args.dim
+    )
+    print("Encoding training texts...")
+    train_data = embedder.encode(
+        train_text, convert_to_numpy=True, show_progress_bar=True
+    )
+    print("Encoding test texts...")
+    test_data = embedder.encode(
+        test_text, convert_to_numpy=True, show_progress_bar=True
+    )
+    del embedder
 
-# Print detailed report and confusion matrix
-report = classification_report(labels, preds)
-cm = confusion_matrix(labels, preds)
+    # 3. Split training and validation data (use 5% of training data for validation)
+    X_train, X_val, y_train, y_val = train_test_split(
+        train_data, train_labels, test_size=0.05, random_state=42
+    )
 
-print("\nTest Data Evaluation:")
-print(f"Precision (macro): {precision:.4f}")
-print(f"Recall (macro): {recall:.4f}")
-print(f"F1 Score (macro): {f1:.4f}")
-print(f"Accuracy: {accuracy:.4f}")
+    # 4. Create LightGBM datasets
+    train_dataset = lgb.Dataset(X_train, label=y_train)
+    val_dataset = lgb.Dataset(X_val, label=y_val, reference=train_dataset)
 
-print("\nClassification Report:")
-print(report)
+    # 5. Set hyperparameters
+    params = {
+        "objective": "regression",
+        "metric": "rmse",
+        "boosting_type": "gbdt",
+        "num_leaves": args.num_leaves,
+        "max_depth": args.max_depth,
+        "learning_rate": args.learning_rate,
+        "feature_fraction": args.feature_fraction,
+        "bagging_fraction": args.bagging_fraction,
+        "bagging_freq": args.bagging_freq,
+        "lambda_l1": args.lambda_l1,
+        "lambda_l2": args.lambda_l2,
+        "min_gain_to_split": args.min_gain_to_split,
+        "min_data_in_leaf": args.min_data_in_leaf,
+        "verbose": 1,
+    }
 
-print("\nConfusion Matrix:")
-print(cm)
+    # 6. Train model (with early stopping and logging)
+    print("Training LightGBM model...")
+    gbm = lgb.train(
+        params,
+        train_dataset,
+        num_boost_round=args.num_boost_round,
+        valid_sets=[train_dataset, val_dataset],
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=args.early_stopping_rounds),
+            lgb.log_evaluation(period=args.test_eval_steps),
+        ],
+    )
+
+    # 7. Predict and evaluate on validation data
+    print("Evaluating on validation set...")
+    val_pred = gbm.predict(X_val)
+    val_metrics = compute_metrics(val_pred, y_val)
+    print("\nValidation Metrics:")
+    for key, value in val_metrics.items():
+        print(f"{key}: {value:.4f}")
+
+    # 8. Display feature importance (top 10)
+    feature_importance = pd.DataFrame(
+        {
+            "feature": [f"feature_{i}" for i in range(train_data.shape[1])],
+            "importance": gbm.feature_importance(),
+        }
+    ).sort_values("importance", ascending=False)
+    print("\nTop 10 Important Features:")
+    print(feature_importance.head(10))
+
+    # 9. Save model
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
+    model_path = os.path.join(args.checkpoint_dir, "lightgbm_model.txt")
+    gbm.save_model(model_path)
+    print(f"Model saved to {model_path}")
+
+    # 10. Predict and evaluate on test data
+    print("Evaluating on test set...")
+    test_pred = gbm.predict(test_data)
+    test_metrics = compute_metrics(test_pred, test_labels)
+    print("\nTest Metrics:")
+    for key, value in test_metrics.items():
+        print(f"{key}: {value:.4f}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="LightGBM Trainer for Score Prediction"
+    )
+    parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="hotchpotch/fineweb-2-edu-japanese-scores",
+        help="Name of the dataset to load",
+    )
+    parser.add_argument(
+        "--target_column",
+        type=str,
+        default="score",
+        help="Name of the target column",
+    )
+    parser.add_argument(
+        "--dim",
+        type=int,
+        default=1024,
+        help="Dimension of embedding vectors",
+    )
+    parser.add_argument(
+        "--embedding_model_name",
+        type=str,
+        default="hotchpotch/static-embedding-japanese",
+        help="Model name for SentenceTransformer",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default="./tmp/lightgbm_models/",
+        help="Directory to save trained models",
+    )
+    parser.add_argument(
+        "--num_boost_round",
+        type=int,
+        default=5000,
+        help="Number of boosting rounds for LightGBM",
+    )
+    parser.add_argument(
+        "--early_stopping_rounds",
+        type=int,
+        default=50,
+        help="Number of rounds for early stopping",
+    )
+    parser.add_argument(
+        "--test_eval_steps",
+        type=int,
+        default=100,
+        help="Interval of rounds for evaluation logging",
+    )
+    parser.add_argument(
+        "--num_proc",
+        type=int,
+        default=11,
+        help="Number of processes for dataset mapping",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode (limits dataset size)",
+    )
+    # LightGBM hyperparameters
+    parser.add_argument(
+        "--num_leaves", type=int, default=128, help="Number of leaves in trees"
+    )
+    parser.add_argument("--max_depth", type=int, default=15, help="Maximum tree depth")
+    parser.add_argument(
+        "--learning_rate", type=float, default=0.02, help="Learning rate"
+    )
+    parser.add_argument(
+        "--feature_fraction",
+        type=float,
+        default=0.8,
+        help="Feature subsampling ratio",
+    )
+    parser.add_argument(
+        "--bagging_fraction",
+        type=float,
+        default=0.8,
+        help="Data subsampling ratio",
+    )
+    parser.add_argument("--bagging_freq", type=int, default=1, help="Bagging frequency")
+    parser.add_argument(
+        "--lambda_l1", type=float, default=0.1, help="L1 regularization coefficient"
+    )
+    parser.add_argument(
+        "--lambda_l2", type=float, default=1.0, help="L2 regularization coefficient"
+    )
+    parser.add_argument(
+        "--min_gain_to_split",
+        type=float,
+        default=0.1,
+        help="Minimum gain for splitting",
+    )
+    parser.add_argument(
+        "--min_data_in_leaf",
+        type=int,
+        default=50,
+        help="Minimum number of data in each leaf",
+    )
+
+    args = parser.parse_args()
+    main(args)
