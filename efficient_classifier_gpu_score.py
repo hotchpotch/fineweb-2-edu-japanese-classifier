@@ -64,7 +64,7 @@ class EfficientFineweb2EduJapaneseScoreClassifier:
             model = AutoModelForSequenceClassification.from_pretrained(
                 "hotchpotch/fineweb-2-edu-japanese-classifier",
                 num_labels=1,
-                device=self.device,
+                torch_dtype=self.dtype,
             ).to(self.device)
             model.eval()
             self._model = model
