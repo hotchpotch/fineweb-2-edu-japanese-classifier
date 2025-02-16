@@ -3,10 +3,38 @@ from typing import List, Tuple
 
 import numpy as np
 import torch
-from datasets import Dataset
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+
+class JapaneseTextDataset(Dataset):
+    def __init__(self, texts: List[str], tokenizer, max_length: int = 512):
+        self.texts = texts
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        text = self.texts[idx]
+        # Unicode正規化
+        normalized_text = unicodedata.normalize("NFKC", text)
+
+        # トークン化
+        encoding = self.tokenizer(
+            normalized_text,
+            truncation=True,
+            max_length=self.max_length,
+            padding="max_length",
+            return_tensors="pt",
+        )
+
+        return {
+            "input_ids": encoding["input_ids"].squeeze(0),
+            "attention_mask": encoding["attention_mask"].squeeze(0),
+        }
 
 
 class EfficientFineweb2EduJapaneseScoreClassifier:
@@ -30,58 +58,31 @@ class EfficientFineweb2EduJapaneseScoreClassifier:
             device if torch.cuda.is_available() and device == "cuda" else "cpu"
         )
         self.max_length = max_length
+        self.model = self._init_model()
 
-        # トークナイザーのみを初期化（CPU用）
+        # トークナイザーの初期化
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-    def _unicode_normalize(self, text: str) -> str:
-        return unicodedata.normalize("NFKC", text)
-
-    def _create_dataset(self, texts: List[str]) -> Dataset:
-        return Dataset.from_dict(
-            {"text": [self._unicode_normalize(text) for text in texts]}
-        )
-
-    def _tokenize_all_texts(
-        self, texts: List[str]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """一括でトークン化を行い、パディングを適用する"""
-        # 全テキストを一度にトークン化
-        tokenized = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-
-        return tokenized["input_ids"], tokenized["attention_mask"]
-
-    def _get_model(self):
-        if not hasattr(self, "_model"):
-            model = AutoModelForSequenceClassification.from_pretrained(
-                "hotchpotch/fineweb-2-edu-japanese-classifier",
-                num_labels=1,
-                torch_dtype=self.dtype,
-            ).to(self.device)
-            model.eval()
-            self._model = model
-        return self._model
+    def _init_model(self):
+        model = AutoModelForSequenceClassification.from_pretrained(
+            "hotchpotch/fineweb-2-edu-japanese-classifier",
+            num_labels=1,
+            torch_dtype=self.dtype,
+        ).to(self.device)
+        model.eval()
+        return model
 
     def predict(self, texts: List[str]) -> List[Tuple[bool, float]]:
         """
         Predict educational content scores for input texts
         Returns list of tuples (is_educational: bool, score: float)
         """
-        normalized_texts = [self._unicode_normalize(text) for text in texts]
+        # カスタムデータセットの作成
+        dataset = JapaneseTextDataset(texts, self.tokenizer, self.max_length)
 
-        input_ids, attention_mask = self._tokenize_all_texts(normalized_texts)
-
-        model = self._get_model()
-
-        dataset = TensorDataset(input_ids, attention_mask)
+        # データローダーの設定
         dataloader = DataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -89,16 +90,16 @@ class EfficientFineweb2EduJapaneseScoreClassifier:
             pin_memory=True if self.device == "cuda" else False,
         )
 
-        # 推論
+        model = self.model
         predictions = []
         iterator = (
             tqdm(dataloader, desc="Predicting") if self.show_progress else dataloader
         )
 
         with torch.no_grad():
-            for batch_ids, batch_mask in iterator:
-                batch_ids = batch_ids.to(self.device)
-                batch_mask = batch_mask.to(self.device)
+            for batch in iterator:
+                batch_ids = batch["input_ids"].to(self.device)
+                batch_mask = batch["attention_mask"].to(self.device)
 
                 outputs = model(input_ids=batch_ids, attention_mask=batch_mask)
                 logits = outputs.logits.squeeze().float().cpu().numpy()
