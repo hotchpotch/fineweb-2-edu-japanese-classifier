@@ -73,6 +73,17 @@ class Fineweb2EduJapaneseBinaryClassifier:
 
 
 if __name__ == "__main__":
+    import os
+    import platform
+
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        # Check for OMP_NUM_THREADS, set to 1 if not present
+        if "OMP_NUM_THREADS" not in os.environ:
+            os.environ["OMP_NUM_THREADS"] = "1"
+            print(
+                "On macOS arm64, due to a conflict between OpenMP and PyTorch, the environment variable OMP_NUM_THREADS was set to 1. As a result, LightGBM may not achieve optimal performance and could be slower."
+            )
+
     # Initialize classifier
     classifier = Fineweb2EduJapaneseBinaryClassifier(show_progress=True)
 
