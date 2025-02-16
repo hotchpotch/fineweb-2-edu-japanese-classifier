@@ -37,7 +37,7 @@ class JapaneseTextDataset(Dataset):
         }
 
 
-class EfficientFineweb2EduJapaneseScoreClassifier:
+class Fineweb2EduJapaneseScoreClassifier:
     def __init__(
         self,
         model_path: str,
@@ -109,8 +109,6 @@ class EfficientFineweb2EduJapaneseScoreClassifier:
 
                 predictions.extend(logits)
 
-        # モデルをメモリから解放
-        del model
         if self.device == "cuda":
             torch.cuda.empty_cache()
 
@@ -120,8 +118,100 @@ class EfficientFineweb2EduJapaneseScoreClassifier:
 
 if __name__ == "__main__":
     import time
+    from typing import List, Tuple
 
     import datasets
+    import numpy as np
+    import pandas as pd
+    from sklearn.metrics import classification_report, confusion_matrix
+
+    def compute_detailed_metrics(pred_scores, true_scores, threshold: float = 2.5):
+        scores = np.array(pred_scores)
+
+        # Multi-class classification (0-4)
+        multi_preds = np.clip(np.round(scores), 0, 4).astype(int)
+
+        # Binary classification
+        binary_preds = (scores >= threshold).astype(int)
+
+        # Generate random labels for demonstration (replace with actual labels)
+        # Note: In real usage, you would pass actual labels instead
+        np.random.seed(42)  # For reproducible example
+        multi_labels = np.array(true_scores)
+        binary_labels = (multi_labels >= 2.5).astype(
+            int
+        )  # Example threshold for educational content
+
+        # Multi-class metrics
+        multi_report = classification_report(
+            multi_labels, multi_preds, labels=[0, 1, 2, 3, 4], output_dict=True
+        )
+        multi_cm = confusion_matrix(multi_labels, multi_preds)
+
+        # Binary metrics
+        binary_report = classification_report(
+            binary_labels,
+            binary_preds,
+            labels=[0, 1],
+            target_names=["それ以外", "教育的"],
+            output_dict=True,
+        )
+        binary_cm = confusion_matrix(binary_labels, binary_preds)
+
+        # Print multi-class results
+        print("Multi-class Classification Report:")
+        print("-" * 80)
+        df_multi = pd.DataFrame(multi_report).transpose()
+        print(df_multi.round(4))
+
+        print("\nMulti-class Confusion Matrix:")
+        print("-" * 80)
+        print(
+            pd.DataFrame(
+                multi_cm,
+                index=[f"Actual {i}" for i in range(5)],
+                columns=[f"Pred {i}" for i in range(5)],
+            )
+        )
+
+        # Print binary results
+        print("\nBinary Classification Report (それ以外/教育的):")
+        print("-" * 80)
+        df_binary = pd.DataFrame(binary_report).transpose()
+        print(df_binary.round(4))
+
+        print("\nBinary Confusion Matrix:")
+        print("-" * 80)
+        print(
+            pd.DataFrame(
+                binary_cm,
+                index=["Actual それ以外", "Actual 教育的"],
+                columns=["Pred それ以外", "Pred 教育的"],
+            )
+        )
+
+        # Print key binary metrics
+        print("\nKey Binary Metrics:")
+        print("-" * 80)
+        metrics_df = pd.DataFrame(
+            {
+                "Metric": ["Precision", "Recall", "F1-score", "Accuracy"],
+                "Value": [
+                    binary_report["教育的"]["precision"],
+                    binary_report["教育的"]["recall"],
+                    binary_report["教育的"]["f1-score"],
+                    binary_report["accuracy"],
+                ],
+            }
+        )
+        print(metrics_df.round(4))
+
+        return {
+            "multi_report": multi_report,
+            "multi_confusion_matrix": multi_cm,
+            "binary_report": binary_report,
+            "binary_confusion_matrix": binary_cm,
+        }
 
     def print_score_matrix(scores: List[float], num_bins: int = 10):
         """Print the distribution of scores in a text-based matrix"""
@@ -141,14 +231,17 @@ if __name__ == "__main__":
 
     # Initialize classifier
     model_path = "hotchpotch/fineweb-2-edu-japanese-classifier"
-    classifier = EfficientFineweb2EduJapaneseScoreClassifier(
+    classifier = Fineweb2EduJapaneseScoreClassifier(
         model_path, show_progress=True, num_workers=4
     )
 
     # Load test dataset
-    print("Loading test dataset...")
-    ds = datasets.load_dataset("hotchpotch/fineweb-2-edu-japanese-scores")
-    test_texts = ds["test"]["text"]
+    target = "test"
+    print(f"Loading {target} dataset...")
+
+    ds = datasets.load_dataset("hotchpotch/fineweb-2-edu-japanese-scores", split=target)
+    test_texts = ds["text"]
+    scores = ds["score"]
     total_chars = sum(len(text) for text in test_texts)
 
     # Get predictions with timing
@@ -173,3 +266,25 @@ if __name__ == "__main__":
 
     # Print score distribution
     print_score_matrix(clipped_scores)
+
+    # Compute detailed metrics
+    detailed_metrics = compute_detailed_metrics(raw_scores, scores)
+
+    # Print sample predictions
+    print("\nSample Predictions:")
+
+    # Sort by score
+    samples = list(zip(test_texts, predictions))
+    samples.sort(key=lambda x: x[1][1], reverse=True)
+
+    print("\nHigh-scoring Examples (raw scores):")
+    for text, (is_edu, score) in samples[:3]:
+        print(
+            f"Score {score:.2f} (Clipped: {min(max(score, 0), 4):.2f}, Educational: {is_edu}): {text[:200]}...\n"
+        )
+
+    print("\nLow-scoring Examples (raw scores):")
+    for text, (is_edu, score) in samples[-3:]:
+        print(
+            f"Score {score:.2f} (Clipped: {min(max(score, 0), 4):.2f}, Educational: {is_edu}): {text[:200]}...\n"
+        )
